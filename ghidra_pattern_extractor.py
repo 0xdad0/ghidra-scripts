@@ -1,29 +1,21 @@
 # Ghidra Pattern Extractor Plugin
 # Extract hex patterns from selected functions for Frida hooking
+# @category Security.Mobile
 # @menupath Tools.GhidraPatternExtractor
-# @toolbar
 
 import json
 import os
 from ghidra.program.model.listing import CodeUnit
-from ghidra.program.model.address import AddressSet
-from ghidra.program.model.symbol import SymbolType
-from java.io import File
-from javax.swing import JOptionPane, JTextField, JPanel, JLabel, JCheckBox, JTextArea, JScrollPane, JButton, JFrame, JTabbedPane, BorderFactory, JFileChooser
-from java.awt import GridLayout, BorderLayout, FlowLayout, Toolkit, Font, Dimension
+from javax.swing import (JOptionPane, JTextField, JPanel, JLabel, JCheckBox, 
+                         JTextArea, JScrollPane, JButton, JFrame, JTabbedPane, 
+                         BorderFactory)
+from java.awt import (GridLayout, BorderLayout, FlowLayout, Toolkit, Font, Dimension)
 from java.awt.datatransfer import StringSelection
-from java.awt.event import ActionListener
-from javax.swing.filechooser import FileNameExtensionFilter
-import java.util.Date
 
-# Note: We removed (GhidraScript) inheritance.
 class PatternExtractor:
     def __init__(self):
-        # These variables (currentProgram, currentAddress, etc.) are injected by Ghidra
         self.default_bytes = 20
-        self.output_format = "frida"
         self.include_wildcards = True
-        self.export_path = os.path.join(os.path.expanduser("~"), "frida_patterns.json")
         
     def run(self):
         try:
@@ -51,7 +43,6 @@ class PatternExtractor:
 
     def getSelectedFunctions(self):
         functions = []
-        # 'currentSelection' is a global injected variable
         selection = currentSelection
         if selection and not selection.isEmpty():
             function_manager = currentProgram.getFunctionManager()
@@ -62,7 +53,7 @@ class PatternExtractor:
                     functions.append(func)
         
         if not functions:
-            current_addr = currentAddress # Global injected variable
+            current_addr = currentAddress 
             if current_addr:
                 func = currentProgram.getFunctionManager().getFunctionContaining(current_addr)
                 if func:
@@ -78,7 +69,6 @@ class PatternExtractor:
             
             for i in range(self.default_bytes):
                 try:
-                    # getByte is a global Ghidra API function
                     byte_val = getByte(addr)
                     bytes_data.append(byte_val & 0xFF)
                     addr = addr.add(1)
@@ -93,9 +83,7 @@ class PatternExtractor:
                 "name": func_name,
                 "address": str(entry_point),
                 "pattern": hex_pattern,
-                "raw_pattern": hex_pattern.replace(" ", ""),
-                "size": len(bytes_data),
-                "description": "Pattern for {}".format(func_name)
+                "size": len(bytes_data)
             }
             
             if self.include_wildcards:
@@ -112,11 +100,8 @@ class PatternExtractor:
         addr = start_addr
         for i, byte_hex in enumerate(bytes_array):
             try:
-                # getInstructionAt is global Ghidra API
                 inst = getInstructionAt(addr)
                 if inst:
-                    # Logic to wildcard if the byte is part of an operand that is an address
-                    # This is a simplified version of your logic
                     is_addr = False
                     for j in range(inst.getNumOperands()):
                         for op in inst.getOpObjects(j):
@@ -135,26 +120,70 @@ class PatternExtractor:
                 smart_pattern.append(byte_hex)
         return " ".join(smart_pattern)
 
-    # ... [Keep your GUI methods here, but replace 'self.popup' with JOptionPane] ...
     def showOptionsDialog(self):
-        panel = JPanel(GridLayout(0, 2))
+        panel = JPanel(GridLayout(0, 2, 10, 10))
         bytes_field = JTextField(str(self.default_bytes))
+        wildcard_cb = JCheckBox("Apply Smart Wildcards", self.include_wildcards)
+        
         panel.add(JLabel("Bytes to extract:"))
         panel.add(bytes_field)
+        panel.add(JLabel("Options:"))
+        panel.add(wildcard_cb)
         
         result = JOptionPane.showConfirmDialog(None, panel, "Pattern Extractor Options", JOptionPane.OK_CANCEL_OPTION)
         if result == JOptionPane.OK_OPTION:
-            self.default_bytes = int(bytes_field.getText())
-            return True
+            try:
+                self.default_bytes = int(bytes_field.getText())
+                self.include_wildcards = wildcard_cb.isSelected()
+                return True
+            except ValueError:
+                return False
         return False
 
     def showResultsDialog(self, patterns):
-        # Simplified result display for brevity, use your existing TabbedPane logic here
-        print("Extracted {} patterns".format(len(patterns)))
-        for p in patterns:
-            print("Func: {} | Pattern: {}".format(p['name'], p.get('smart_pattern', p['pattern'])))
+        frame = JFrame("Extracted Frida Patterns")
+        frame.setSize(Dimension(500, 300))
+        frame.setLayout(BorderLayout())
+        
+        tabs = JTabbedPane()
 
-# --- Execution ---
+        for p in patterns:
+            # Create a panel for each function found
+            func_panel = JPanel(BorderLayout(10, 10))
+            func_panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10))
+            
+            display_pattern = p.get('smart_pattern', p['pattern'])
+            
+            # Text area for the hex
+            text_area = JTextArea(display_pattern)
+            text_area.setLineWrap(True)
+            text_area.setWrapStyleWord(True)
+            text_area.setFont(Font("Monospaced", Font.PLAIN, 12))
+            text_area.setEditable(False)
+            
+            scroll_pane = JScrollPane(text_area)
+            func_panel.add(scroll_pane, BorderLayout.CENTER)
+            
+            # Copy Button logic
+            btn_panel = JPanel(FlowLayout(FlowLayout.RIGHT))
+            copy_btn = JButton("Copy to Clipboard")
+            
+            def copy_action(e, pattern=display_pattern):
+                selection = StringSelection(pattern)
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, None)
+                # Small visual feedback in Ghidra console
+                print("Copied pattern for {} to clipboard.".format(p['name']))
+
+            copy_btn.addActionListener(copy_action)
+            btn_panel.add(copy_btn)
+            func_panel.add(btn_panel, BorderLayout.SOUTH)
+            
+            tabs.addTab(p['name'], func_panel)
+
+        frame.add(tabs, BorderLayout.CENTER)
+        frame.setLocationRelativeTo(None)
+        frame.setVisible(True)
+
 if __name__ == "__main__":
     extractor = PatternExtractor()
     extractor.run()
